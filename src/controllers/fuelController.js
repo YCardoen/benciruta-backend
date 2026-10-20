@@ -1,6 +1,10 @@
 const { optimizarBencineras } = require('../services/fuelOptimizerService');
 const { obtenerEstacionesCNE, listarTiposCombustibles } = require('../services/cneService');
 const { calcularDistanciaKm } = require('../utils/geo');
+const { obtenerDistanciasRutaKm } = require('../services/mapboxService');
+
+// Máximo de estaciones a las que se les calcula ruta (24 por consulta a Mapbox)
+const MAX_CANDIDATAS = 96;
 
 // 1. Catálogo de combustibles (GET /api/combustibles/tipos)
 function getTiposCombustibles(req, res) {
@@ -71,13 +75,29 @@ async function calcularMejorOpcion(req, res, next) {
 
     const estaciones = await obtenerEstacionesCNE(tipoCombustible, uLat, uLng, radio);
 
+    // Distancia por ruta real hacia las estaciones dentro del radio (las más cercanas primero)
+    const dentroDelRadio = estaciones
+      .map((e) => ({ ...e, lineaRecta: calcularDistanciaKm(uLat, uLng, e.lat, e.lng) }))
+      .filter((e) => e.lineaRecta <= radio)
+      .sort((a, b) => a.lineaRecta - b.lineaRecta)
+      .slice(0, MAX_CANDIDATAS);
+
+    let distanciasRutaKm = null;
+    try {
+      distanciasRutaKm = await obtenerDistanciasRutaKm({ lat: uLat, lng: uLng }, dentroDelRadio);
+    } catch (error) {
+      // Si Mapbox no responde, se calcula con la línea recta en vez de dejar al usuario sin resultados
+      console.warn('⚠️ No se pudieron obtener rutas de Mapbox, se usa línea recta:', error.message);
+    }
+
     const ranking = optimizarBencineras({
       usuarioLat: uLat,
       usuarioLng: uLng,
       litrosACargar: litros,
       rendimientoKmL: rendimiento,
       radioMaxKm: radio,
-      estaciones,
+      estaciones: dentroDelRadio,
+      distanciasRutaKm,
     });
 
     const mejorOpcion = ranking[0] || null;

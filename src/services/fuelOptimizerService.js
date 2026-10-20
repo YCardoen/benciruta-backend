@@ -10,14 +10,15 @@ function optimizarBencineras({
   rendimientoKmL,
   radioMaxKm = 15,
   estaciones, // Lista de estaciones con { nombre, direccion, lat, lng, precioLitro }
+  distanciasRutaKm = null, // Map id -> km por ruta real; si no viene, se usa la línea recta
 }) {
   const resultados = [];
 
   for (const estacion of estaciones) {
     if (!estacion.lat || !estacion.lng || !estacion.precioLitro) continue;
 
-    // 1. Distancia en línea recta entre el cliente y la estación
-    const distanciaKm = calcularDistanciaKm(
+    // 1. Distancia en línea recta entre el cliente y la estación (define el radio de búsqueda)
+    const lineaRecta = calcularDistanciaKm(
       usuarioLat,
       usuarioLng,
       estacion.lat,
@@ -25,7 +26,15 @@ function optimizarBencineras({
     );
 
     // Filtrar si excede el radio máximo deseado
-    if (distanciaKm > radioMaxKm) continue;
+    if (lineaRecta > radioMaxKm) continue;
+
+    // Distancia por ruta real (Mapbox). Sin ruta hacia la estación, no es candidata válida.
+    let distanciaKm = lineaRecta;
+    if (distanciasRutaKm) {
+      const ruta = distanciasRutaKm.get(estacion.id);
+      if (ruta === undefined || ruta === null) continue;
+      distanciaKm = ruta;
+    }
 
     // 2. Costo del viaje (consideramos ida y vuelta = distancia * 2)
     const distanciaTotalViaje = distanciaKm * 2;
